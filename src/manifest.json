@@ -1,0 +1,55 @@
+{
+  "manifest_version": 3,
+  "name": "2FA Extension",
+  "version": "0.1.0",
+  "description": "为 wuzf/2fa（Cloudflare Workers 2FA 管理器）提供浏览器端快捷取码与自动填充",
+  "minimum_chrome_version": "116",
+
+  "permissions": ["storage", "clipboardWrite", "alarms", "activeTab", "offscreen"],
+
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
+
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "2FA",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+
+  "options_ui": {
+    "page": "options/options.html",
+    "open_in_tab": true
+  },
+
+  "commands": {
+    "copy-code": {
+      "suggested_key": { "default": "Ctrl+Shift+C" },
+      "description": "复制当前站点匹配的验证码"
+    }
+  },
+
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}

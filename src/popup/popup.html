@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>2FA</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="header">
+        <div class="host" id="host">—</div>
+        <button class="icon-btn" id="btn-settings" title="设置" type="button">⚙</button>
+      </header>
+
+      <!-- 状态：未配置 -->
+      <section class="view" id="view-setup" hidden>
+        <p class="hint">尚未配置服务器地址。</p>
+        <button class="primary" id="btn-open-options" type="button">前往设置</button>
+      </section>
+
+      <!-- 状态：未登录 -->
+      <section class="view" id="view-login" hidden>
+        <p class="hint">请输入 2FA 管理密码</p>
+        <input
+          type="password"
+          id="input-password"
+          class="text-input"
+          placeholder="管理密码"
+          autocomplete="off"
+        />
+        <button class="primary" id="btn-login" type="button">登录</button>
+        <p class="error" id="login-error" hidden></p>
+      </section>
+
+      <!-- 状态：正常 -->
+      <section class="view" id="view-list" hidden>
+        <input type="search" id="input-search" class="text-input" placeholder="搜索服务 / 账户" />
+        <div class="list" id="list"></div>
+      </section>
+
+      <footer class="footer">
+        <span class="status" id="status"></span>
+        <button class="link-btn" id="btn-refresh" type="button">刷新</button>
+      </footer>
+    </div>
+
+    <script src="popup.js" type="module"></script>
+  </body>
+</html>

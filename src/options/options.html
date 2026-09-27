@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>2FA 扩展设置</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <h1>2FA 扩展设置</h1>
+
+      <section class="group">
+        <h2>服务器</h2>
+        <label class="field">
+          <span>Worker 地址</span>
+          <input type="url" id="server-url" placeholder="https://your-worker.workers.dev" />
+        </label>
+        <p class="note" id="perm-note"></p>
+        <button class="btn" id="btn-grant" type="button">授权访问该地址</button>
+      </section>
+
+      <section class="group">
+        <h2>认证</h2>
+        <label class="field">
+          <span>管理密码（用于换取 token）</span>
+          <input type="password" id="password" autocomplete="off" />
+        </label>
+        <button class="btn primary" id="btn-login" type="button">登录并保存 token</button>
+        <p class="note">
+          上游 v1.9.0 登录接口已在响应体返回 token，且 <code>verifyAuth()</code> 原生支持
+          <code>Authorization: Bearer</code> —— <strong>无需改动服务端</strong>。
+          token 保存在 <code>chrome.storage.session</code>，浏览器关闭即失效，不写入磁盘。
+        </p>
+        <label class="field">
+          <span>或手动粘贴 token（无法用密码登录时的备用通道）</span>
+          <input type="text" id="token" placeholder="eyJhbGciOi..." />
+        </label>
+        <button class="btn" id="btn-save-token" type="button">保存 token</button>
+      </section>
+
+      <section class="group">
+        <h2>行为</h2>
+        <label class="field inline">
+          <input type="checkbox" id="autofill" checked />
+          <span>启用自动填充</span>
+        </label>
+        <label class="field inline">
+          <input type="checkbox" id="clipboard-clear" checked />
+          <span>复制后 30 秒清除剪贴板</span>
+        </label>
+        <label class="field">
+          <span>自动锁定（分钟）</span>
+          <input type="number" id="lock-minutes" min="1" max="120" value="5" />
+        </label>
+      </section>
+
+      <section class="group">
+        <h2>端点（高级）</h2>
+        <p class="note">
+          默认值已从上游 v1.9.0 源码核实（<code>/api/login</code>、<code>/api/secrets</code>）。
+          「探测」仅用于自建/改造服务端的排障。
+        </p>
+        <label class="field">
+          <span>登录端点</span>
+          <input type="text" id="ep-login" />
+        </label>
+        <label class="field">
+          <span>密钥列表端点</span>
+          <input type="text" id="ep-secrets" />
+        </label>
+        <button class="btn" id="btn-probe" type="button">探测列表端点</button>
+        <p class="note" id="probe-result"></p>
+      </section>
+
+      <p class="msg" id="msg"></p>
+    </main>
+
+    <script src="options.js" type="module"></script>
+  </body>
+</html>
