@@ -30,6 +30,7 @@ import { ApiClient, ApiError, isHotp, entryLabel, normalizeSecrets } from './lib
 import { generateForEntry } from './lib/otp.js';
 import { matchEntriesForHost } from './lib/match.js';
 import { writeClipboard, clearClipboard } from './lib/clipboard.js';
+import { findDuplicate } from './lib/secret-input.js';
 
 const LOCK_ALARM = 'authforge-lock';
 const CLIPBOARD_ALARM = 'authforge-clear-clipboard';
@@ -59,6 +60,9 @@ async function getConfig() {
     cacheToSession: config?.cacheToSession ?? true,
     autoFillEnabled: config?.autoFillEnabled ?? true,
     clipboardClear: config?.clipboardClear ?? true,
+    // 记住登录：token 额外写入 storage.local（磁盘），重启浏览器免登录。
+    // 关闭时退回"仅会话"语义（storage.session，浏览器关闭即失效）。
+    keepLoggedIn: config?.keepLoggedIn ?? true,
   };
 }
 
@@ -72,19 +76,50 @@ async function saveConfig(patch) {
 async function loadToken() {
   if (memory.client?.token) return memory.client.token;
   const { token } = await chrome.storage.session.get('token');
-  return token ?? null;
+  if (token) return token;
+  // 记住登录：会话已失效（浏览器重启等）时回落到本机持久化 token
+  const config = await getConfig();
+  if (config.keepLoggedIn) {
+    const local = await chrome.storage.local.get('token');
+    if (local.token) {
+      // 回填会话存储，后续读取不再走磁盘
+      await chrome.storage.session.set({ token: local.token });
+      return local.token;
+    }
+  }
+  return null;
 }
 
 async function persistToken(token) {
   await chrome.storage.session.set({ token });
+  const config = await getConfig();
+  if (config.keepLoggedIn && token) {
+    await chrome.storage.local.set({ token, tokenSavedAt: Date.now() });
+  }
 }
 
-async function clearSession() {
+/**
+ * 清理会话。
+ * @param {object} [opts]
+ * @param {boolean} [opts.includeLocal] 同时删除本机持久化 token。显式登出时必须传；
+ *   自动锁定时不传 —— keepLoggedIn 下"锁定"的语义是清缓存，不打断登录态。
+ */
+async function clearSession({ includeLocal = false } = {}) {
   memory.client = null;
   memory.entries = [];
   memory.entriesAt = 0;
   await chrome.storage.session.remove('token');
   await chrome.storage.session.remove('entries');
+  if (includeLocal) {
+    await chrome.storage.local.remove('token');
+    await chrome.storage.local.remove('tokenSavedAt');
+  } else {
+    const config = await getConfig();
+    if (!config.keepLoggedIn) {
+      await chrome.storage.local.remove('token');
+      await chrome.storage.local.remove('tokenSavedAt');
+    }
+  }
   await chrome.alarms.clear(LOCK_ALARM);
 }
 
@@ -243,9 +278,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // 它绝不能触发 storage IO —— 否则每次开网页都会唤醒 service worker，
   // 这是 MV3 明确的性能反模式（白白烧 CPU，并加速 SW 回收）。
   if (type === 'HOST_REPORT') {
-    memory.currentHost = message.hostname ?? null;
+    const newHost = message.hostname ?? null;
+    if (memory.currentHost !== newHost) {
+      memory.currentHost = newHost;
+      // 仅在站点变化时写一次 session —— 同站导航零写入（仍避免每页导航的 storage IO 反模式）。
+      // 持久到会话存储是为了添加页的站点预填在 SW 被回收重启后依然可用。
+      chrome.storage.session.set({ lastHost: newHost }).catch(() => {});
+    }
     sendResponse({ ok: true });
     return;
+  }
+
+  // 添加页的站点预填（GET_SITE_HINT）：内存优先，SW 重启后回落会话存储。
+  // 无 host 不算错误 —— 没有可识别站点时添加页就保持空白让用户手填。
+  if (type === 'GET_SITE_HINT') {
+    (async () => {
+      if (memory.currentHost) return sendResponse({ host: memory.currentHost });
+      const { lastHost } = await chrome.storage.session.get('lastHost');
+      sendResponse({ host: lastHost ?? null });
+    })().catch(() => sendResponse({ host: null }));
+    return true; // 异步应答
   }
 
   const handled = (async () => {
@@ -291,12 +343,55 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
 
       case 'LOGOUT':
-        await clearSession();
+        // 显式登出：连本机持久化 token 一起清除
+        await clearSession({ includeLocal: true });
         return { ok: true };
 
       case 'REFRESH': {
         const entries = await refreshEntries({ force: true });
         return { ok: true, count: entries.length };
+      }
+
+      /**
+       * 新增条目并写入服务端。
+       *
+       * 提交成功后必须让本地缓存失效 —— 否则新条目要等 30 秒 TTL 才显示，
+       * 用户会以为添加失败了而去重试，结果撞上 409 重复。
+       */
+      case 'ADD_SECRET': {
+        const result = await callApi((client) => client.createSecret(message.payload));
+        memory.entries = [];
+        memory.entriesAt = 0;
+        const entries = await refreshEntries({ force: true });
+        return {
+          ok: true,
+          secret: result.secret,
+          warning: result.warning,
+          status: result.status,
+          count: entries.length,
+        };
+      }
+
+      /** 提交前的重复预检：让 UI 能在发请求之前就提示 */
+      case 'CHECK_DUPLICATE': {
+        const entries = await refreshEntries();
+        const hit = findDuplicate(entries, message.candidate);
+        return { duplicate: hit ? { id: hit.id, name: hit.name } : null };
+      }
+
+      /**
+       * 从当前标签页截图识别二维码。
+       *
+       * 用浏览器内置的 BarcodeDetector 而不是打包 jsQR —— MV3 的 CSP 是
+       * script-src 'self'，拉不了 CDN 脚本，而引入一个 40KB 的第三方库
+       * 只为这个可选功能不值得。
+       *
+       * BarcodeDetector 的平台覆盖不全（Windows/Linux 上常不可用），
+       * 所以调用方必须先探测；这里只负责"能识别时返回 URI"。
+       */
+      case 'SCAN_QR': {
+        const uri = await scanQrFromActiveTab();
+        return { uri };
       }
 
       case 'STATE': {
@@ -417,6 +512,59 @@ async function advanceHotpSafely(entry) {
   const confirmed = Number.isFinite(result.counter) ? result.counter : expectedNext;
   await commitCounter(entry.id, confirmed);
   return confirmed;
+}
+
+/**
+ * 截取当前标签页可见区域，用 BarcodeDetector 找二维码。
+ *
+ * @returns {Promise<string|null>} 命中的 otpauth:// URI，或 null（无码 / 不支持 / 无权限）
+ */
+async function scanQrFromActiveTab() {
+  if (typeof BarcodeDetector === 'undefined') return null;
+
+  let detector;
+  try {
+    // 构造失败通常意味着该平台没有可用后端
+    detector = new BarcodeDetector();
+    const supported = await BarcodeDetector.getSupportedFormats();
+    if (!supported.includes('qr_code')) return null;
+  } catch {
+    return null;
+  }
+
+  let dataUrl;
+  try {
+    // 截图目标 = 最近聚焦的**常规**浏览器窗口的活动标签。
+    // 添加页本身以独立小窗（popup 型窗口）打开 —— 若按"当前窗口"截，会截到添加页自己。
+    let windowId = null;
+    try {
+      const normal = await chrome.windows.getLastFocused({ windowTypes: ['normal'] });
+      windowId = normal?.id ?? null;
+    } catch { /* API 不可用时回落 tabs.query */ }
+    if (windowId == null) {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      windowId = tab?.windowId ?? null;
+    }
+    if (windowId == null) return null;
+    dataUrl = await chrome.tabs.captureVisibleTab(windowId, { format: 'png' });
+  } catch {
+    // 多半是缺 activeTab 权限或页面不可截（如 chrome:// 内部页）
+    return null;
+  }
+
+  try {
+    const blob = await (await fetch(dataUrl)).blob();
+    const bitmap = await createImageBitmap(blob);
+    const codes = await detector.detect(bitmap);
+    bitmap.close?.();
+    for (const code of codes) {
+      const value = String(code.rawValue ?? '').trim();
+      if (value.toLowerCase().startsWith('otpauth://')) return value;
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 /**

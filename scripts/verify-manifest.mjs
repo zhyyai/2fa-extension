@@ -123,7 +123,7 @@ console.log('\n③ 不得出现重复的 src/ 前缀（本次踩的坑）');
 console.log('\n④ HTML 引用的资源必须存在（相对 HTML 自身解析）');
 /* ------------------------------------------------------------------ */
 {
-  const htmlFiles = ['popup/popup.html', 'options/options.html', 'offscreen.html'];
+  const htmlFiles = ['popup/popup.html', 'options/options.html', 'offscreen.html', 'add.html'];
   for (const rel of htmlFiles) {
     if (!exists(rel)) {
       check(`${rel} 存在`, false);
@@ -161,6 +161,7 @@ console.log('\n⑤ JS 的静态 import 必须可解析');
     'lib/clipboard.js',
     'popup/popup.js',
     'options/options.js',
+    'add.js',
   ];
 
   for (const rel of jsFiles) {
@@ -190,7 +191,42 @@ console.log('\n⑤ JS 的静态 import 必须可解析');
 }
 
 /* ------------------------------------------------------------------ */
+console.log('\n⑥ JS 引用的 DOM id 必须在对应 HTML 中存在');
+/* ------------------------------------------------------------------ */
+{
+  // 这条检查针对一类很隐蔽的崩溃：JS 里 getElementById 拼错一个字母，
+  // 得到 null，然后 null.textContent = ... 直接炸在页面初始化阶段。
+  // 没有单元测试会覆盖到，只能在加载真实页面时才发现。
+  const pairs = [
+    ['popup/popup.js', 'popup/popup.html'],
+    ['options/options.js', 'options/options.html'],
+    ['add.js', 'add.html'],
+  ];
+
+  for (const [jsRel, htmlRel] of pairs) {
+    if (!exists(jsRel) || !exists(htmlRel)) {
+      check(`${jsRel} / ${htmlRel} 存在`, false);
+      continue;
+    }
+    const js = readFileSync(join(EXT_ROOT, jsRel), 'utf8');
+    const html = readFileSync(join(EXT_ROOT, htmlRel), 'utf8');
+
+    const wanted = new Set(
+      [...js.matchAll(/getElementById\(\s*['"]([^'"]+)['"]\s*\)/g)].map((m) => m[1]),
+    );
+    const declared = new Set([...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]));
+
+    const missing = [...wanted].filter((id) => !declared.has(id));
+    check(
+      `${jsRel} 引用的 ${wanted.size} 个 id 都在 ${htmlRel} 中`,
+      missing.length === 0,
+      missing.length ? `缺失：${missing.join(', ')}` : '',
+    );
+  }
+}
+
+/* ------------------------------------------------------------------ */
 console.log(`\n${'='.repeat(52)}`);
 console.log(`资源路径检查：通过 ${passed} 项，失败 ${failed} 项`);
 console.log('='.repeat(52));
-process.exit(failed === 0 ? 0 : 1);
+process.exitCode = failed === 0 ? 0 : 1;

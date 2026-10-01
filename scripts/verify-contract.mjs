@@ -55,7 +55,19 @@ console.log(`上游源码目录：${upstreamDir}\n`);
 console.log('① 版本');
 /* ------------------------------------------------------------------ */
 const pkg = JSON.parse(read('package.json'));
-check('上游版本为 1.9.0（契约据此核实）', pkg.version === '1.9.0', `实际 ${pkg.version}`);
+// 契约核实基准为 1.9.0。更高版本不直接判失败 —— 是否漂移由下方语义断言裁决，
+// 这里只做"未经逐行核实"的提示，避免上游正常迭代就常红。
+const CONTRACT_BASELINE_VERSION = '1.9.0';
+const [upMajor, upMinor] = String(pkg.version).split('.').map(Number);
+check(
+  '上游版本 ≥ 1.9.0（Bearer + 响应体 token 契约的最低版本）',
+  upMajor > 1 || (upMajor === 1 && upMinor >= 9),
+  `实际 ${pkg.version}`,
+);
+if (pkg.version !== CONTRACT_BASELINE_VERSION) {
+  console.log(`  ⚠ 上游 ${pkg.version} 与契约核实基准 ${CONTRACT_BASELINE_VERSION} 不同。`);
+  console.log('    若下方语义断言全部通过，说明契约仍成立；人工确认后可把基准版本推进。');
+}
 const versionJs = read('src/utils/version.js');
 check('APP_VERSION 与 package.json 一致', versionJs.includes(`'${pkg.version}'`));
 
@@ -106,8 +118,10 @@ console.log('\n④ 密钥列表：端点与响应形状');
 /* ------------------------------------------------------------------ */
 const crud = read('src/api/secrets/crud.js');
 check(
-  'GET /api/secrets 返回裸数组（无 {success,data} 信封）',
-  /return createJsonResponse\(secrets\);/.test(crud),
+  'GET /api/secrets 返回裸数组（secrets 直接作为第一参数，无 {success,data} 信封）',
+  // 裸数组语义 = 第一参数就是 secrets 本身；v1.10.0 起追加了 (200, request, headers)
+  // 等实参，逐字符匹配会误报，故只锚定第一参数
+  /return createJsonResponse\(\s*secrets\b/.test(crud),
 );
 check(
   '条目含 name 字段（上游没有 issuer 字段）',
@@ -222,7 +236,8 @@ check(
 );
 check(
   'CORS 已允许 Authorization 请求头',
-  security.includes("'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With'"),
+  // v1.10.0 起允许头列表追加了 X-Language 等项，改为锚定关键字段而非整串匹配
+  /Access-Control-Allow-Headers['"]?\s*[:=]\s*['"][^'"]*\bAuthorization\b/.test(security),
 );
 
 /* ------------------------------------------------------------------ */
@@ -230,4 +245,4 @@ console.log(`\n${'='.repeat(52)}`);
 console.log(`契约检测：通过 ${passed} 项，失败 ${failed} 项`);
 console.log('='.repeat(52));
 
-process.exit(failed === 0 ? 0 : 1);
+process.exitCode = failed === 0 ? 0 : 1;

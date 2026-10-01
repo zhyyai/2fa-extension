@@ -52,7 +52,8 @@ manifest 里保留 `optional_host_permissions: ["https://*/*", "http://*/*"]` �
 | 场景 | 是否需要 |
 |---|:--:|
 | Chrome + 授予了目标 origin 的 host 权限 | ❌ 不需要 |
-| Firefox（扩展无等价的 CORS 豁免） | ✅ 需要 |
+| Firefox + 用户授予了 host 权限（2026-10 实测：Firefox 155 授予后扩展请求豁免 CORS） | ❌ 不需要 |
+| Firefox + 未授予 host 权限（MV3 下临时/默认安装均不自动授予） | ✅ 需要 |
 | 想让 content script 在页面上下文直连 API | ✅ 需要 |
 
 补丁做的事很有限：在 `isOriginAllowed()` 之后追加一段**精确匹配**的扩展 ID 白名单（读 `ALLOWED_EXTENSION_ORIGINS` secret），不放宽同源策略、不动 `SameSite`、不动认证逻辑。

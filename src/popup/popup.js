@@ -16,6 +16,7 @@ const els = {
   inputPassword: document.getElementById('input-password'),
   btnLogin: document.getElementById('btn-login'),
   btnRefresh: document.getElementById('btn-refresh'),
+  btnAdd: document.getElementById('btn-add'),
   btnSettings: document.getElementById('btn-settings'),
   btnOpenOptions: document.getElementById('btn-open-options'),
   loginError: document.getElementById('login-error'),
@@ -255,10 +256,13 @@ async function login() {
     return;
   }
   els.btnLogin.disabled = true;
+  els.btnLogin.textContent = '登录中…';
   try {
     await send({ type: 'LOGIN', credential: password });
     els.loginError.hidden = true;
     els.inputPassword.value = '';
+    // 明确告知 token 保存结果（背景页写入 storage 后才算成功）
+    setStatus('登录成功，token 已保存');
     show(els.viewList);
     await loadCodes();
   } catch (error) {
@@ -267,8 +271,10 @@ async function login() {
       ? `${error.message} 请到设置页点「授权访问该地址」。`
       : error.message;
     els.loginError.hidden = false;
+    setStatus('');
   } finally {
     els.btnLogin.disabled = false;
+    els.btnLogin.textContent = '登录';
   }
 }
 
@@ -277,6 +283,26 @@ async function login() {
 els.btnLogin.addEventListener('click', login);
 els.inputPassword.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') login();
+});
+
+// 添加页按 Bitwarden 的方式以**独立小窗**弹出（430×680，popup 型窗口）：
+// 不抢占浏览器标签页，随点随用随关；全屏表单塞在小窗里比塞在 340px 弹层里从容。
+// 弹窗解析出的当前站点 hostname 一并带过去，添加页据此预填服务名
+els.btnAdd.addEventListener('click', async () => {
+  const { config } = await send({ type: 'CONFIG_GET' });
+  if (!config?.serverUrl) {
+    setStatus('请先配置服务器地址');
+    chrome.runtime.openOptionsPage();
+    return;
+  }
+  const q = state.hostname ? `?host=${encodeURIComponent(state.hostname)}` : '';
+  await chrome.windows.create({
+    url: chrome.runtime.getURL('add.html') + q,
+    type: 'popup',
+    width: 430,
+    height: 680,
+  });
+  window.close();
 });
 
 els.btnRefresh.addEventListener('click', async () => {

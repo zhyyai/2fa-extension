@@ -137,6 +137,19 @@ export class ApiClient {
         });
       }
       return { status: response.status, data };
+    } catch (error) {
+      // 网络层的失败没有 HTTP 状态码，UI 拿不到任何可用信息。
+      // 在这里归类成明确的 code，调用方（弹窗 / 添加页）才能给出可执行的提示。
+      if (error?.name === 'AbortError') {
+        throw new ApiError('请求超时，请检查服务器地址与网络', { status: 0, code: 'TIMEOUT' });
+      }
+      if (error instanceof TypeError) {
+        throw new ApiError('无法连接到服务器，请检查服务器地址与网络', {
+          status: 0,
+          code: 'NETWORK_ERROR',
+        });
+      }
+      throw error;
     } finally {
       clearTimeout(timer);
     }
@@ -208,6 +221,33 @@ export class ApiClient {
   async listSecrets() {
     const { data } = await this._request(this.endpoints.secrets, { method: 'GET' });
     return normalizeSecrets(data);
+  }
+
+  /**
+   * 新增条目（对应上游 handleAddSecret，src/api/secrets/crud.js:78）
+   *
+   * 服务端行为：
+   *   - 校验走 addSecretSchema，白名单之外的 digits/period/algorithm 会 400
+   *   - name + account + secret 三者全同 → 409 Conflict
+   *   - 成功返回 **201**，形状 { success, message, data: { secret, warning? } }
+   *   - id 由服务端用 crypto.randomUUID() 生成，客户端不要传
+   *
+   * @param {Object} payload validateNewSecret().payload 的输出
+   * @returns {Promise<{secret: object|null, warning: string|null, status: number, raw: object}>}
+   */
+  async createSecret(payload) {
+    const { status, data } = await this._request(this.endpoints.secrets, {
+      method: 'POST',
+      body: payload,
+    });
+    // 响应：{ success, message, data: { secret, warning? } }
+    const inner = data?.data ?? data ?? {};
+    return {
+      secret: inner.secret ?? null,
+      warning: inner.warning ?? data?.warning ?? null,
+      status,
+      raw: data,
+    };
   }
 
   /**

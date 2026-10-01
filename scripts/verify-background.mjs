@@ -53,6 +53,7 @@ globalThis.chrome = {
   storage: {
     sync: makeStorageArea('sync'),
     session: makeStorageArea('session'),
+    local: makeStorageArea('local'),
   },
   alarms: {
     async create(name, info) {
@@ -142,16 +143,26 @@ function dispatch(type, extra = {}) {
 console.log('==> 已加载 background service worker\n');
 
 /* ------------------------------------------------------------------ */
-console.log('① HOST_REPORT 不得触发任何 storage IO（MV3 性能反模式）');
+console.log('① HOST_REPORT：站点变化才写一次 session（同站导航零 IO）');
 /* ------------------------------------------------------------------ */
 {
   const before = io.sessionGets + io.sessionSets;
   await dispatch('HOST_REPORT', { hostname: 'example.com' });
   const after = io.sessionGets + io.sessionSets;
-  check('未读写 session storage', after - before, 0);
+  check('站点变化：恰好一次写入（供添加页预填在 SW 重启后使用）', after - before, 1);
+
+  // 同站重复上报：必须零 IO（每次开网页都会发 HOST_REPORT，不能每页都写）
+  const repeatBefore = io.sessionGets + io.sessionSets;
+  await dispatch('HOST_REPORT', { hostname: 'example.com' });
+  await dispatch('HOST_REPORT', { hostname: 'example.com' });
+  check('同站重复上报：零读写', io.sessionGets + io.sessionSets - repeatBefore, 0);
 
   const status = await dispatch('STATE');
   check('hostname 已记录', status.host, 'example.com');
+
+  // GET_SITE_HINT：内存命中 + 显式不触发 touch/restore
+  const hint = await dispatch('GET_SITE_HINT');
+  check('GET_SITE_HINT 返回当前站点', hint.host, 'example.com');
 }
 
 /* ------------------------------------------------------------------ */
@@ -300,4 +311,5 @@ await worker.close();
 console.log(`\n${'='.repeat(52)}`);
 console.log(`background 验证：通过 ${passed} 项，失败 ${failed} 项`);
 console.log('='.repeat(52));
-process.exit(failed === 0 ? 0 : 1);
+// exitCode 替代 process.exit：避免 Windows 下强退触发 libuv 断言崩溃
+process.exitCode = failed === 0 ? 0 : 1;

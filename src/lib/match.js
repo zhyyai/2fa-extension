@@ -92,3 +92,23 @@ export function matchEntriesForHost(entries, hostname) {
   scored.sort((a, b) => b.score - a.score);
   return scored.map((item) => item.entry);
 }
+
+/**
+ * 由 hostname 推导条目名建议（Bitwarden 式预填）。
+ * 取主标签（去掉 TLD 与 www），按 -/._ 分词并首字母大写：
+ *   "github.com" → "Github"；"mail.google.com" → "Google"；"my-site.com" → "My Site"。
+ * 纯启发式、无公共后缀库（co.uk 这类复合 TLD 会取到 "co"），调用方可让用户改。
+ */
+export function suggestNameFromHost(hostname) {
+  const raw = String(hostname || '').trim().toLowerCase();
+  if (!raw) return '';
+  const parts = raw.split('.').filter(Boolean);
+  const labels = parts.length >= 2 ? parts.slice(-2, -1) : parts;
+  const label = labels[0] ?? '';
+  if (!label) return '';
+  return label
+    .split(/[-_.]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}

@@ -50,6 +50,7 @@ export async function createMockWorker({
     cookieHeaders: 0,
     bearerHeaders: 0,
     counterPayloads: [],
+    createPayloads: [],
     secretsRequests: 0,
     forcedCounterConflict: false, // 置 true 时让上推必定 409，用于测异常分支
   };
@@ -146,6 +147,80 @@ export async function createMockWorker({
       return res.end(JSON.stringify(state.secrets));
     }
 
+    // POST /api/secrets —— 新增（crud.js:78）
+    if (pathname === '/api/secrets' && req.method === 'POST') {
+      if (authenticate(req) !== state.token) return unauthorized();
+      observed.createPayloads.push(body);
+
+      const invalid = (message) =>
+        send(res, 400, { error: message, message, timestamp: new Date().toISOString() });
+
+      // addSecretSchema 的枚举白名单
+      const name = typeof body?.name === 'string' ? body.name.trim() : '';
+      if (!name) return invalid('服务名称不能为空');
+      if (name.length > 50) return invalid(`服务名称过长，最多支持50个字符（当前：${name.length}）`);
+
+      const cleanSecret = String(body?.secret ?? '')
+        .toUpperCase()
+        .trim()
+        .replace(/\s/g, '');
+      if (!cleanSecret) return invalid('密钥不能为空');
+      if (!/^[A-Z2-7]+=*$/.test(cleanSecret)) return invalid('密钥格式无效，只能包含字母A-Z和数字2-7');
+      if (cleanSecret.length < 8) return invalid(`密钥长度过短（${cleanSecret.length}字符），至少需要8字符`);
+
+      const type = String(body?.type ?? 'TOTP').toUpperCase();
+      if (!['TOTP', 'HOTP'].includes(type)) return invalid('不支持的OTP类型，仅支持TOTP或HOTP');
+      if (![6, 8].includes(Number.parseInt(body?.digits ?? 6, 10))) return invalid('验证码位数仅支持6位或8位');
+      if (![30, 60, 120].includes(Number.parseInt(body?.period ?? 30, 10))) {
+        return invalid('TOTP周期仅支持30、60或120秒');
+      }
+      if (!['SHA1', 'SHA256', 'SHA512'].includes(String(body?.algorithm ?? 'SHA1').toUpperCase())) {
+        return invalid('哈希算法仅支持SHA1、SHA256或SHA512');
+      }
+      if (type === 'HOTP') {
+        const counter = Number.parseInt(body?.counter ?? 0, 10);
+        if (!Number.isSafeInteger(counter) || counter < 0) return invalid('HOTP计数器必须是非负安全整数');
+      }
+
+      // 重复：name + account + secret 三者全同（validation.js checkDuplicateSecret）
+      const account = typeof body?.account === 'string' ? body.account.trim() : '';
+      const isDuplicate = state.secrets.some(
+        (item) =>
+          item.name === name &&
+          String(item.account ?? '') === account &&
+          String(item.secret ?? '').replace(/\s/g, '').toUpperCase() === cleanSecret,
+      );
+      if (isDuplicate) {
+        const message = `服务"${name}"${account ? ` (账户: ${account})` : ''} 已存在`;
+        return send(res, 409, { error: message, message, timestamp: new Date().toISOString() });
+      }
+
+      // 服务端生成 id（crud.js:104）
+      const created = {
+        id: `sec-new-${state.secrets.length + 1}`,
+        name,
+        account,
+        secret: cleanSecret,
+        type,
+        digits: Number.parseInt(body?.digits ?? 6, 10),
+        period: Number.parseInt(body?.period ?? 30, 10),
+        algorithm: String(body?.algorithm ?? 'SHA1').toUpperCase(),
+        counter: type === 'HOTP' ? Number.parseInt(body?.counter ?? 0, 10) : undefined,
+      };
+
+      // 弱密钥警告（crud.js:127-136）
+      const bitLength = Math.floor((cleanSecret.length * 5) / 8) * 8;
+      const warning =
+        bitLength < 128 ? `密钥强度一般（${bitLength}位），推荐使用128位以上的密钥` : undefined;
+
+      state.secrets.push(created);
+      return send(res, 201, {
+        success: true,
+        message: warning ? `⚠️ 密钥添加成功，但${warning}` : '密钥添加成功',
+        data: { secret: created, ...(warning ? { warning } : {}) },
+      });
+    }
+
     // POST /api/secrets/:id/counter —— 乐观并发快照（counter.js:82-102）
     const counterMatch = /^\/api\/secrets\/([^/]+)\/counter$/.exec(pathname);
     if (counterMatch && req.method === 'POST') {
@@ -229,7 +304,12 @@ export async function createMockWorker({
     observed,
     close: () =>
       new Promise((resolve) => {
+        // keep-alive 空闲连接不主动断开会让 close() 悬挂；Node 18.2+ 提供该方法
+        server.closeIdleConnections?.();
         server.close(resolve);
+        // 兜底：即使 close 因未知句柄未完成，也不阻止进程自然退出
+        //（Windows + Node 24 下 process.exit 强退会触发 libuv 断言崩溃）
+        server.unref();
       }),
   };
 }

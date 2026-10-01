@@ -5,12 +5,14 @@
   "type": "module",
   "description": "Browser extension + Bearer auth for wuzf/2fa (Cloudflare Workers 2FA manager)",
   "scripts": {
-    "test": "node scripts/verify-manifest.mjs && node scripts/verify-otp.mjs && node scripts/verify-contract.mjs && node scripts/verify-integration.mjs && node scripts/verify-background.mjs",
+    "test": "node scripts/verify-manifest.mjs && node scripts/verify-otp.mjs && node scripts/verify-contract.mjs && node scripts/verify-integration.mjs && node scripts/verify-background.mjs && node scripts/verify-add.mjs",
     "test:manifest": "node scripts/verify-manifest.mjs",
     "test:otp": "node scripts/verify-otp.mjs",
     "test:contract": "node scripts/verify-contract.mjs",
     "test:integration": "node scripts/verify-integration.mjs",
     "test:background": "node scripts/verify-background.mjs",
+    "test:add": "node scripts/verify-add.mjs",
+    "build:firefox": "node scripts/build-firefox.mjs",
     "test:vitest": "vitest run",
     "test:watch": "vitest",
     "bootstrap": "bash scripts/bootstrap.sh"

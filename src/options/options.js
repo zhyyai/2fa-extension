@@ -14,6 +14,7 @@ const els = {
   token: document.getElementById('token'),
   autofill: document.getElementById('autofill'),
   clipboardClear: document.getElementById('clipboard-clear'),
+  keepLoggedIn: document.getElementById('keep-logged-in'),
   lockMinutes: document.getElementById('lock-minutes'),
   epLogin: document.getElementById('ep-login'),
   epSecrets: document.getElementById('ep-secrets'),
@@ -24,7 +25,14 @@ const els = {
   permNote: document.getElementById('perm-note'),
   probeResult: document.getElementById('probe-result'),
   msg: document.getElementById('msg'),
+  loginResult: document.getElementById('login-result'),
 };
+
+/** 登录结果专用提示（常驻显示保存状态，不会像全局 msg 一样被下一次保存覆盖） */
+function loginMessage(text, isError = false) {
+  els.loginResult.textContent = text;
+  els.loginResult.className = isError ? 'msg error' : 'msg';
+}
 
 function send(message) {
   return new Promise((resolve, reject) => {
@@ -75,6 +83,7 @@ async function save() {
       },
       autoFillEnabled: els.autofill.checked,
       clipboardClear: els.clipboardClear.checked,
+      keepLoggedIn: els.keepLoggedIn.checked,
       lockMinutes: Number(els.lockMinutes.value) || 5,
     },
   });
@@ -89,6 +98,7 @@ async function load() {
   els.epSecrets.value = config.endpoints?.secrets ?? DEFAULT_ENDPOINTS.secrets;
   els.autofill.checked = config.autoFillEnabled ?? true;
   els.clipboardClear.checked = config.clipboardClear ?? true;
+  els.keepLoggedIn.checked = config.keepLoggedIn ?? true;
   els.lockMinutes.value = config.lockMinutes ?? 5;
   await refreshPermNote();
 }
@@ -119,16 +129,25 @@ els.btnGrant.addEventListener('click', async () => {
 });
 
 els.btnLogin.addEventListener('click', async () => {
+  if (!els.password.value) return loginMessage('请输入管理密码', true);
+  els.btnLogin.disabled = true;
+  loginMessage('正在登录…');
   try {
     await save();
     // 登录按钮本身就是用户手势，顺手把权限一起办了，省得用户多点一次
     if (!(await ensurePermission())) return;
     // 上游登录字段名是 credential（不是 password），background 内部会转换
     const result = await send({ type: 'LOGIN', credential: els.password.value });
-    message(`登录成功，${result.count} 条条目`);
+    const { config } = await send({ type: 'CONFIG_GET' });
+    const where = config?.keepLoggedIn
+      ? 'token 已保存到本机（重启浏览器免登录）'
+      : 'token 已保存（仅本次浏览器会话有效）';
+    loginMessage(`✅ 登录成功，已同步 ${result.count} 条条目；${where}`);
     els.password.value = '';
   } catch (error) {
-    message(error.message, true);
+    loginMessage(`登录失败：${error.message}`, true);
+  } finally {
+    els.btnLogin.disabled = false;
   }
 });
 
@@ -161,6 +180,7 @@ for (const el of [
   els.serverUrl,
   els.autofill,
   els.clipboardClear,
+  els.keepLoggedIn,
   els.lockMinutes,
   els.epLogin,
   els.epSecrets,

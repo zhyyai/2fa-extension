@@ -27,10 +27,13 @@
           <input type="password" id="password" autocomplete="off" />
         </label>
         <button class="btn primary" id="btn-login" type="button">登录并保存 token</button>
+        <p class="msg" id="login-result"></p>
         <p class="note">
           上游 v1.9.0 登录接口已在响应体返回 token，且 <code>verifyAuth()</code> 原生支持
           <code>Authorization: Bearer</code> —— <strong>无需改动服务端</strong>。
-          token 保存在 <code>chrome.storage.session</code>，浏览器关闭即失效，不写入磁盘。
+          「记住登录」开启时 token 额外保存到 <code>chrome.storage.local</code>
+          （本机磁盘，重启浏览器免登录；显式登出即清除）。
+          关闭时仅存 <code>chrome.storage.session</code>，浏览器关闭即失效。
         </p>
         <label class="field">
           <span>或手动粘贴 token（无法用密码登录时的备用通道）</span>
@@ -44,6 +47,10 @@
         <label class="field inline">
           <input type="checkbox" id="autofill" checked />
           <span>启用自动填充</span>
+        </label>
+        <label class="field inline">
+          <input type="checkbox" id="keep-logged-in" checked />
+          <span>记住登录（token 保存到本机，重启浏览器免登录；安全性与设备磁盘相当）</span>
         </label>
         <label class="field inline">
           <input type="checkbox" id="clipboard-clear" checked />

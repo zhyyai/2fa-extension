@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>添加 2FA 条目</title>
+    <link rel="stylesheet" href="add.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <header class="page-head">
+        <div class="brand">
+          <img class="brand-logo" src="../icons/logo.svg" alt="" width="36" height="36" />
+          <div>
+            <h1>添加 2FA 条目</h1>
+            <p class="sub">条目会写入你的 Worker，与 PWA 端实时同步。</p>
+          </div>
+        </div>
+      </header>
+
+      <div class="banner" id="banner" hidden>
+        <span id="banner-text"></span>
+        <button class="btn" id="banner-action" type="button" hidden>打开设置</button>
+      </div>
+
+      <section class="group">
+        <h2>快速导入</h2>
+        <label class="field">
+          <span>粘贴 otpauth:// URI（可选）</span>
+          <textarea
+            id="uri-input"
+            rows="2"
+            placeholder="otpauth://totp/GitHub:alice?secret=JBSWY3DPEHPK3PXP&amp;issuer=GitHub"
+          ></textarea>
+        </label>
+        <div class="row">
+          <button class="btn" id="btn-parse" type="button">解析并填入表单</button>
+          <button class="btn" id="btn-scan" type="button" hidden>扫描当前页面二维码</button>
+        </div>
+        <p class="note" id="parse-note"></p>
+        <p class="note muted" id="scan-note"></p>
+      </section>
+
+      <section class="group">
+        <h2>条目信息</h2>
+
+        <label class="field">
+          <span>服务名称 <em>*</em></span>
+          <input type="text" id="f-name" maxlength="50" autocomplete="off" placeholder="GitHub" />
+        </label>
+        <p class="field-error" id="e-name" hidden></p>
+        <p class="note muted" id="site-note" hidden></p>
+
+        <label class="field">
+          <span>账户名</span>
+          <input type="text" id="f-account" autocomplete="off" placeholder="alice@example.com" />
+        </label>
+        <p class="field-error" id="e-account" hidden></p>
+
+        <label class="field">
+          <span>密钥 <em>*</em></span>
+          <input
+            type="text"
+            id="f-secret"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="JBSWY3DPEHPK3PXP"
+          />
+        </label>
+        <p class="field-error" id="e-secret" hidden></p>
+        <p class="note warn" id="w-secret" hidden></p>
+
+        <div class="grid">
+          <label class="field">
+            <span>类型</span>
+            <select id="f-type">
+              <option value="TOTP" selected>TOTP（时间）</option>
+              <option value="HOTP">HOTP（计数器）</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>位数</span>
+            <select id="f-digits">
+              <option value="6" selected>6</option>
+              <option value="8">8</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>周期（秒）</span>
+            <select id="f-period">
+              <option value="30" selected>30</option>
+              <option value="60">60</option>
+              <option value="120">120</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>算法</span>
+            <select id="f-algorithm">
+              <option value="SHA1" selected>SHA1</option>
+              <option value="SHA256">SHA256</option>
+              <option value="SHA512">SHA512</option>
+            </select>
+          </label>
+
+          <label class="field" id="wrap-counter" hidden>
+            <span>初始计数器</span>
+            <input type="number" id="f-counter" min="0" step="1" value="0" />
+          </label>
+        </div>
+        <p class="field-error" id="e-form" hidden></p>
+      </section>
+
+      <div class="actions">
+        <button class="btn primary" id="btn-submit" type="button">写入服务端</button>
+        <button class="btn" id="btn-generate" type="button">生成随机密钥</button>
+      </div>
+
+      <p class="msg" id="msg"></p>
+
+      <p class="note muted">
+        说明：上游仅支持 TOTP 与 HOTP，不含 Steam Guard。密钥以明文写入服务端 ——
+        上游是服务端加密存储，不是端到端加密。
+      </p>
+    </main>
+
+    <script type="module" src="add.js"></script>
+  </body>
+</html>

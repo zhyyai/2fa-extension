@@ -89,4 +89,4 @@ console.log(`\n${'='.repeat(48)}`);
 console.log(`通过 ${passed} 项，失败 ${failed} 项`);
 console.log('='.repeat(48));
 
-process.exit(failed === 0 ? 0 : 1);
+process.exitCode = failed === 0 ? 0 : 1;

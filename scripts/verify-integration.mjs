@@ -213,4 +213,5 @@ await worker.close();
 console.log(`\n${'='.repeat(52)}`);
 console.log(`集成验证：通过 ${passed} 项，失败 ${failed} 项`);
 console.log('='.repeat(52));
-process.exit(failed === 0 ? 0 : 1);
+// exitCode 替代 process.exit：避免 Windows 下强退触发 libuv 断言崩溃
+process.exitCode = failed === 0 ? 0 : 1;
