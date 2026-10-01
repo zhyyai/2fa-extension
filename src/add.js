@@ -52,6 +52,9 @@ const errEls = {
 };
 const warnSecret = document.getElementById('w-secret');
 
+/** 本次会话解析到的当前站点 host（用于添加成功后的自动绑定） */
+let siteHost = null;
+
 function send(message) {
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage(message, (response) => {
@@ -272,6 +275,16 @@ async function submit() {
     const name = created?.secret?.name ?? result.payload.name;
     let text = `已添加「${name}」，当前共 ${created?.count ?? '?'} 条，可在扩展弹窗中查看。`;
     if (created?.warning) text += ` 服务端提醒：${created.warning}`;
+
+    // 自动绑定条目↔当前站点：无论条目将来改成什么名字，站点匹配都以绑定为准
+    if (siteHost && created?.secret?.id) {
+      try {
+        await send({ type: 'BIND_ENTRY_HOST', id: created.secret.id, host: siteHost });
+        text += ' 已绑定到当前站点。';
+      } catch {
+        text += ' （站点绑定失败，可在弹窗中手动绑定）';
+      }
+    }
     message(text);
 
     // 清空表单，方便连续添加
@@ -346,6 +359,7 @@ els.bannerAction.addEventListener('click', () => {
     }
   }
   if (!host) return;
+  siteHost = String(host).toLowerCase();
 
   const suggestion = suggestNameFromHost(host);
   if (suggestion && !els.name.value.trim()) {

@@ -191,6 +191,19 @@ function renderItem(item) {
     fill.textContent = '⤓';
     fill.addEventListener('click', () => fillToPage(item.id));
     bottom.appendChild(fill);
+
+    // 条目↔当前站点 绑定切换：绑定后无论条目叫什么名字，站点匹配都以绑定为准
+    if (state.hostname) {
+      const bind = document.createElement('button');
+      bind.className = 'icon-btn' + (item.bound ? ' on' : '');
+      bind.type = 'button';
+      bind.title = item.bound
+        ? `已绑定 ${state.hostname}，点击解绑`
+        : `绑定到 ${state.hostname}（改名不影响匹配）`;
+      bind.textContent = '⛓';
+      bind.addEventListener('click', () => toggleBind(item.id, item.bound));
+      bottom.appendChild(bind);
+    }
   }
 
   card.append(top, bottom);
@@ -245,6 +258,22 @@ async function fillToPage(id) {
     setStatus(response?.ok ? '已填充' : `填充失败：${response?.reason ?? '未知'}`);
   } catch (error) {
     setStatus(error.message || '填充失败');
+  }
+}
+
+/** 绑定/解绑条目↔当前站点，然后刷新列表反映新匹配 */
+async function toggleBind(id, currentlyBound) {
+  try {
+    await send({
+      type: 'BIND_ENTRY_HOST',
+      id,
+      host: state.hostname,
+      unbind: currentlyBound === true,
+    });
+    setStatus(currentlyBound ? '已解绑当前站点' : '已绑定当前站点，改名不影响匹配');
+    await loadCodes();
+  } catch (error) {
+    setStatus(error.message || '绑定失败');
   }
 }
 

@@ -196,6 +196,10 @@ body {
   color: var(--fg);
 }
 
+.icon-btn.on {
+  color: var(--accent);
+}
+
 .footer {
   display: flex;
   align-items: center;

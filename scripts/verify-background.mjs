@@ -293,7 +293,32 @@ console.log('\n⑨ 剪贴板清除闹钟需避开 Chrome 30 秒下限');
 }
 
 /* ------------------------------------------------------------------ */
-console.log('\n⑩ 登出与未知消息');
+console.log('\n⑩ 条目↔站点绑定（BIND_ENTRY_HOST + MATCH）');
+/* ------------------------------------------------------------------ */
+{
+  // 模拟用户把条目改成与域名毫无关系的中文名 —— 旧机制（名字猜测）在此永久失效
+  await dispatch('HOST_REPORT', { hostname: 'bank.example.com' });
+  const added = await dispatch('ADD_SECRET', {
+    payload: { name: '银行', account: '', secret: 'JBSWY3DPEHPK3PXP', type: 'TOTP', digits: 6, period: 30, algorithm: 'SHA1' },
+  });
+  const entries = await dispatch('ENTRIES');
+  const target = entries.entries.find((e) => e.issuer === '银行');
+  checkTrue('中文名条目已创建', Boolean(target), `id=${added?.secret?.id}`);
+
+  const before = await dispatch('MATCH', { hostname: 'bank.example.com' });
+  checkTrue('未绑定时中文名条目无法被站点匹配', !before.codes.some((c) => c.id === target.id));
+
+  await dispatch('BIND_ENTRY_HOST', { id: target.id, host: 'bank.example.com' });
+  const after = await dispatch('MATCH', { hostname: 'bank.example.com' });
+  checkTrue('绑定后命中且排第一（绑定优先于名字猜测）', after.codes[0]?.id === target.id);
+  checkTrue('MATCH 返回绑定状态', after.codes[0]?.bound === true);
+
+  await dispatch('BIND_ENTRY_HOST', { id: target.id, host: 'bank.example.com', unbind: true });
+  const removed = await dispatch('MATCH', { hostname: 'bank.example.com' });
+  checkTrue('解绑后不再命中', !removed.codes.some((c) => c.id === target.id));
+}
+
+console.log('\n⑪ 登出与未知消息');
 /* ------------------------------------------------------------------ */
 {
   const out = await dispatch('LOGOUT');

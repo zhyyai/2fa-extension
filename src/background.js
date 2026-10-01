@@ -28,7 +28,7 @@
 
 import { ApiClient, ApiError, isHotp, entryLabel, normalizeSecrets } from './lib/api.js';
 import { generateForEntry } from './lib/otp.js';
-import { matchEntriesForHost } from './lib/match.js';
+import { matchEntriesForHost, hostMatchesBound } from './lib/match.js';
 import { writeClipboard, clearClipboard } from './lib/clipboard.js';
 import { findDuplicate } from './lib/secret-input.js';
 
@@ -45,7 +45,25 @@ const memory = {
   entriesAt: 0,
   lastActivityAt: 0,
   currentHost: null,
+  bindings: null, // 条目↔站点绑定缓存 { [entryId]: [host, ...] }，落盘 storage.local
 };
+
+/**
+ * 条目↔站点绑定：匹配的最高优先级依据，让条目改名/中文名不影响站点识别。
+ * 上游 schema 没有 URI 字段，这属于扩展侧元数据（storage.local，登出不清除）。
+ */
+async function getBindings() {
+  if (!memory.bindings) {
+    const { entryHosts } = await chrome.storage.local.get('entryHosts');
+    memory.bindings = entryHosts ?? {};
+  }
+  return memory.bindings;
+}
+
+async function saveBindings(bindings) {
+  memory.bindings = bindings;
+  await chrome.storage.local.set({ entryHosts: bindings });
+}
 
 /* ------------------------------------------------------------------ */
 /* 配置读写                                                             */
@@ -443,7 +461,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       case 'MATCH': {
         const entries = await refreshEntries();
-        const matched = matchEntriesForHost(entries, message.hostname ?? '');
+        const bindings = await getBindings();
+        const hostname = message.hostname ?? '';
+        const matched = matchEntriesForHost(entries, hostname, bindings);
         const codes = [];
         for (const entry of matched) {
           try {
@@ -455,6 +475,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               code: result.code,
               remaining: Number.isFinite(result.remaining) ? result.remaining : null,
               type: entry.type ?? 'TOTP',
+              bound: hostMatchesBound(hostname, bindings[String(entry.id)]),
             });
           } catch (error) {
             codes.push({
@@ -462,10 +483,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               issuer: entryLabel(entry),
               account: entry.account || '',
               error: error.message,
+              bound: hostMatchesBound(hostname, bindings[String(entry.id)]),
             });
           }
         }
-        return { codes, hostname: message.hostname };
+        return { codes, hostname };
+      }
+
+      case 'BIND_ENTRY_HOST': {
+        // 绑定/解绑条目↔站点（popup 卡片上的 ⛓ 切换、添加页成功后自动绑定）
+        const host = String(message.host ?? '').trim().toLowerCase();
+        if (!host) throw new ApiError('缺少 host，无法绑定');
+        const bindings = await getBindings();
+        const id = String(message.id);
+        const list = new Set(bindings[id] ?? []);
+        const wasBound = list.has(host);
+        if (message.unbind || wasBound) list.delete(host);
+        else list.add(host);
+        if (list.size) bindings[id] = [...list];
+        else delete bindings[id];
+        await saveBindings(bindings);
+        return { ok: true, bound: list.has(host), hosts: bindings[id] ?? [] };
       }
 
       case 'FILL': {
@@ -679,7 +717,8 @@ chrome.commands.onCommand.addListener(async (command) => {
     await restoreFromSession();
     if (command !== 'copy-code') return;
     const entries = await refreshEntries();
-    const matched = matchEntriesForHost(entries, memory.currentHost ?? '');
+    const bindings = await getBindings();
+    const matched = matchEntriesForHost(entries, memory.currentHost ?? '', bindings);
     const entry = matched[0];
     if (!entry) return;
     await handleCopy(entry.id);

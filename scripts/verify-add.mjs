@@ -102,7 +102,7 @@ const {
   ALLOWED_PERIODS,
   ALLOWED_ALGORITHMS,
 } = await import('../src/lib/secret-input.js');
-const { suggestNameFromHost } = await import('../src/lib/match.js');
+const { suggestNameFromHost, hostMatchesBound, matchEntriesForHost } = await import('../src/lib/match.js');
 
 let passed = 0;
 let failed = 0;
@@ -326,6 +326,30 @@ console.log('\n⑧ 站点名预填建议（suggestNameFromHost）');
   check('localhost → Localhost', suggestNameFromHost('localhost'), 'Localhost');
   check('空输入 → 空串', suggestNameFromHost(''), '');
   check('纯端口式输入不崩', typeof suggestNameFromHost('127.0.0.1:8765'), 'string');
+}
+
+/* ------------------------------------------------------------------ */
+console.log('\n⑨ 条目↔站点绑定匹配（绑定优先于名字猜测）');
+/* ------------------------------------------------------------------ */
+{
+  // 名字与域名毫无关系的条目（模拟用户改成中文名/自定义名）
+  const entries = [
+    { id: '1', name: '银行', account: '' },
+    { id: '2', name: 'Github', account: '' },
+  ];
+  const bindings = { '1': ['bank.example.com'] };
+
+  check('绑定的条目跨名字命中且排第一',
+    matchEntriesForHost(entries, 'bank.example.com', bindings).map((e) => e.id).join(','), '1');
+  check('未绑定且名字无关的条目不匹配',
+    matchEntriesForHost(entries, 'bank.example.com').length, 0);
+  check('子域命中（login.bank.example.com）',
+    hostMatchesBound('login.bank.example.com', ['bank.example.com']), true);
+  check('同后缀的兄弟域名不误命中（evilbank.example.com）',
+    hostMatchesBound('evilbank.example.com', ['bank.example.com']), false);
+  check('大小写/协议差异归一化',
+    hostMatchesBound('https://Bank.Example.com/', ['bank.example.com']), true);
+  check('无绑定列表时安全返回 false', hostMatchesBound('bank.example.com', undefined), false);
 }
 
 await worker.close();

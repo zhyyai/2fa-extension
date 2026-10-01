@@ -40,7 +40,7 @@ function mainLabel(host) {
  * 单条目打分。0 表示不匹配。
  * 分值越高越应置顶。
  */
-export function scoreEntry(entry, hostname) {
+export function scoreEntry(entry, hostname, bindings = {}) {
   const host = normalizeHost(hostname);
   if (!host) return 0;
 
@@ -49,6 +49,12 @@ export function scoreEntry(entry, hostname) {
   const label = mainLabel(host);
 
   let score = 0;
+
+  // 0) 扩展本地的条目↔站点绑定（最高优先级）：名字随便改都不影响匹配。
+  //    绑定存在 chrome.storage.local（上游 schema 没有 URI 字段，这是扩展侧元数据）。
+  if (hostMatchesBound(host, bindings[String(entry.id)])) {
+    return 120;
+  }
 
   // 1) 邮箱域名完全等于当前站点 → 最强信号
   if (accountDomain && accountDomain === host) score = Math.max(score, 100);
@@ -82,15 +88,54 @@ export function scoreEntry(entry, hostname) {
  * 按 hostname 排序匹配条目
  * @returns 匹配到的条目数组（分值降序）；hostname 为空时返回全部条目
  */
-export function matchEntriesForHost(entries, hostname) {
+/**
+ * 按 hostname 排序匹配条目
+ * @param {Array} entries 条目数组
+ * @param {string} hostname 当前站点
+ * @param {Object} [bindings] 扩展本地的条目↔站点绑定 { [entryId]: [host, ...] }
+ * @returns 匹配到的条目数组（分值降序）；hostname 为空时返回全部条目
+ */
+export function matchEntriesForHost(entries, hostname, bindings = {}) {
   if (!hostname) return [...entries];
 
   const scored = entries
-    .map((entry) => ({ entry, score: scoreEntry(entry, hostname) }))
+    .map((entry) => ({ entry, score: scoreEntry(entry, hostname, bindings) }))
     .filter((item) => item.score > 0);
 
   scored.sort((a, b) => b.score - a.score);
   return scored.map((item) => item.entry);
+}
+
+/**
+ * 判断 host 是否命中一组绑定站点（精确或子域）。
+ * 两端都先规整为纯主机名（容忍粘贴完整 URL：协议/路径/端口一律剥掉），
+ * 再过 normalizeHost，保证 "my-site.com" 与 "my-site.com" 写法一致。
+ */
+export function hostMatchesBound(host, boundHosts) {
+  const h = coerceHost(host);
+  if (!h || !Array.isArray(boundHosts)) return false;
+  for (const raw of boundHosts) {
+    const b = coerceHost(raw);
+    if (!b) continue;
+    if (h === b || h.endsWith(`.${b}`)) return true;
+  }
+  return false;
+}
+
+/** 宽容输入：剥协议、路径与端口，只留 hostname 部分再交给 normalizeHost */
+function coerceHost(raw) {
+  return normalizeHost(
+    String(raw || '')
+      .trim()
+      .toLowerCase()
+      .replace(/^[a-z][a-z0-9+.-]*:\/\//, '')
+      .replace(/\/.*$/, ''),
+  );
+}
+
+/** 判断某个条目是否已绑定到指定 host（供 UI 显示绑定状态） */
+export function isEntryBound(entryId, hostname, bindings = {}) {
+  return hostMatchesBound(hostname, bindings[String(entryId)]);
 }
 
 /**
