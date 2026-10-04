@@ -26,7 +26,7 @@ const out = join(root, 'dist', 'firefox');
 const xpi = join(root, 'dist', '2fa-extension-firefox.xpi');
 
 const GECKO_ID = process.env.GECKO_ID ?? '2fa-extension@koalas.kdns.fr';
-const MIN_FIREFOX = '115.0'; // chrome.storage.session 的最低支持版本
+const MIN_FIREFOX = '140.0'; // data_collection_permissions 声明需要 ≥ 140
 
 if (!existsSync(join(src, 'manifest.json'))) {
   console.error('找不到 src/manifest.json —— 请在项目根目录运行');
@@ -47,9 +47,16 @@ if (!existsSync(join(src, 'manifest.json'))) {
   //    （Firefox 中该权限允许后台页免用户手势写剪贴板，正是第一级降级需要的）
   manifest.permissions = manifest.permissions.filter((p) => p !== 'offscreen');
 
-  // 3) Firefox 扩展身份：稳定 ID（服务端 CORS 白名单按 origin 精确匹配的前提）
+  // 3) Firefox 扩展身份：稳定 ID + AMO 强制的数据收集声明。
+  //    本扩展零遥测、零第三方收集（凭据只发往用户自己配置的服务器）→ 声明 "none"。
+  //    该属性需要 Firefox ≥ 140，strict_min_version 相应抬升（storage.session 的
+  //    115 下限被覆盖，ESR 140 仍在支持范围内）。
   manifest.browser_specific_settings = {
-    gecko: { id: GECKO_ID, strict_min_version: MIN_FIREFOX },
+    gecko: {
+      id: GECKO_ID,
+      strict_min_version: MIN_FIREFOX,
+      data_collection_permissions: { required: ['none'] },
+    },
   };
 
   // 4) Chrome 专属键：Firefox 会忽略，但清掉更干净
